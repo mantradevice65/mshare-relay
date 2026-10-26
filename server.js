@@ -28,12 +28,29 @@ wss.on('connection', (ws) => {
 
   ws.on('pong', () => { ws.isAlive = true; });
 
-  ws.on('message', (raw) => {
+  ws.on('message', (raw, isBinary) => {
+    // High-Speed Binary Forwarding for Virtual USB Hardware Streaming
+    if (isBinary || (Buffer.isBuffer(raw) && raw.length > 0 && raw[0] !== 0x7B)) {
+      if (boundCode && rooms.has(boundCode)) {
+        const session = rooms.get(boundCode);
+        const target = (clientRole === 'MOBILE') ? session.pcWs : session.mobileWs;
+        if (target && target.readyState === WebSocket.OPEN) {
+          target.send(raw, { binary: true });
+        }
+      }
+      return;
+    }
+
     try {
-      const msg = JSON.parse(raw);
+      const msg = JSON.parse(raw.toString('utf-8'));
 
       if (msg.type === 'REGISTER_MOBILE') {
-        boundCode = generateCode();
+        const preferred = (msg.preferredCode || '').trim();
+        if (preferred && preferred.length === 6 && /^\d+$/.test(preferred)) {
+          boundCode = preferred;
+        } else {
+          boundCode = generateCode();
+        }
         clientRole = 'MOBILE';
         rooms.set(boundCode, { mobileWs: ws, pcWs: null });
         ws.send(JSON.stringify({ type: 'CODE_ASSIGNED', code: boundCode }));
